@@ -6,80 +6,123 @@ from PIL import Image
 from openai import OpenAI
 from streamlit_drawable_canvas import st_canvas
 
-st.set_page_config(page_title="Tablero Inteligente", page_icon="🎨")
+# -----------------------------
+# Configuración general
+# -----------------------------
+st.set_page_config(page_title="Tablero Inteligente", page_icon="🎨", layout="centered")
 
 st.title("🎨 Tablero Inteligente")
+st.markdown("Dibuja algo y deja que la IA lo interprete, lo mejore y proponga una idea creativa basada en tu boceto.")
 
+# -----------------------------
+# Funciones auxiliares
+# -----------------------------
 def encode_image_to_base64(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode("utf-8")
 
-stroke_width = st.sidebar.slider("Grosor del trazo", 1, 30, 5)
+# -----------------------------
+# Sidebar
+# -----------------------------
+with st.sidebar:
+    st.subheader("⚙️ Configuración")
+    st.write("En esta aplicación la IA interpreta el boceto y propone una versión más clara y creativa.")
+
+    stroke_width = st.slider("Grosor del trazo", 1, 30, 5)
+    canvas_width = st.slider("Ancho del lienzo", 300, 800, 400, 50)
+    canvas_height = st.slider("Alto del lienzo", 200, 600, 300, 50)
+
+    stroke_color = "#000000"
+    bg_color = "#FFFFFF"
+
+    clear_canvas = st.button("🗑️ Limpiar lienzo")
+
+# -----------------------------
+# Canvas de dibujo
+# -----------------------------
+st.subheader("🖌️ Dibuja aquí tu idea")
 
 canvas_result = st_canvas(
     fill_color="rgba(255, 165, 0, 0.2)",
     stroke_width=stroke_width,
-    stroke_color="#000000",
-    background_color="#FFFFFF",
-    height=300,
-    width=400,
+    stroke_color=stroke_color,
+    background_color=bg_color,
+    height=canvas_height,
+    width=canvas_width,
     drawing_mode="freedraw",
-    key="canvas",
+    key=f"canvas_{clear_canvas}_{canvas_width}_{canvas_height}",
 )
 
-api_key = st.text_input("Ingresa tu API key", type="password")
+# -----------------------------
+# API Key
+# -----------------------------
+st.subheader("🔑 API Key")
+api_key = st.text_input("Ingresa tu OpenAI API Key", type="password")
 
-if st.button("Probar API"):
-    try:
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "user", "content": "Responde solo: API funcionando"}
-            ],
-            max_tokens=20,
-        )
-        st.success(response.choices[0].message.content)
-    except Exception as e:
-        st.error(f"Error de prueba: {type(e).__name__}: {e}")
+analyze_button = st.button("✨ Analizar dibujo", type="primary")
 
-if st.button("Analizar dibujo"):
-    try:
-        if not api_key:
-            st.warning("Ingresa tu API key.")
-        elif canvas_result.image_data is None:
-            st.warning("Dibuja algo primero.")
-        else:
+# -----------------------------
+# Lógica principal
+# -----------------------------
+if analyze_button:
+    if not api_key:
+        st.warning("Por favor ingresa tu API key.")
+    elif canvas_result.image_data is None:
+        st.warning("Por favor dibuja algo antes de analizar.")
+    else:
+        try:
             client = OpenAI(api_key=api_key)
 
-            input_numpy_array = np.array(canvas_result.image_data)
-            input_image = Image.fromarray(input_numpy_array.astype("uint8"), "RGBA")
-            input_image.save("img.png")
+            with st.spinner("Analizando tu dibujo..."):
+                # Convertir el canvas a imagen
+                input_numpy_array = np.array(canvas_result.image_data)
+                input_image = Image.fromarray(input_numpy_array.astype("uint8"), "RGBA")
+                image_path = "img.png"
+                input_image.save(image_path)
 
-            base64_image = encode_image_to_base64("img.png")
+                # Codificar imagen
+                base64_image = encode_image_to_base64(image_path)
 
-            prompt_text = "Describe en español brevemente qué contiene este dibujo."
+                prompt_text = """
+                Analiza este boceto hecho a mano.
+                Responde en español y con este formato exacto:
 
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt_text},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{base64_image}"
+                1. ¿Qué parece ser?
+                2. Descripción breve del dibujo
+                3. ¿Cómo podría mejorarse visualmente?
+                4. Una idea creativa o funcional basada en ese dibujo
+                5. Un prompt final para convertir este boceto en una ilustración digital clara y atractiva
+
+                Sé claro, útil y breve.
+                """
+
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt_text},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/png;base64,{base64_image}"
+                                    },
                                 },
-                            },
-                        ],
-                    }
-                ],
-                max_tokens=200,
-            )
+                            ],
+                        }
+                    ],
+                    max_tokens=500,
+                )
 
-            st.write(response.choices[0].message.content)
+                result = response.choices[0].message.content
 
-    except Exception as e:
-        st.error(f"Ocurrió un error: {type(e).__name__}: {e}")
+                st.success("Análisis completado")
+                st.subheader("🧠 Resultado de la IA")
+                st.write(result)
+
+                st.subheader("🖼️ Tu dibujo")
+                st.image(image_path, caption="Boceto enviado a la IA", use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Ocurrió un error: {e}")
